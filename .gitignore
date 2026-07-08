@@ -1,0 +1,15 @@
+
+# Exclude Python cache folders
+__pycache__/
+
+# Exclude Virtual environments
+venv/
+env/
+
+# Exclude sensitive Streamlit secrets (as we discussed earlier)
+secrets.toml
+.streamlit/secrets.toml
+
+# Exclude local text logs, but KEEP the required Streamlit cloud file
+*.txt
+!requirements.txt
