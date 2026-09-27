@@ -1,222 +1,262 @@
-
-import streamlit as st
 import io
-from reportlab.pdfgen import canvas
+import re
+from datetime import datetime
+import streamlit as st
+import config
+
+# ReportLab PDF Engine
 from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 
 # ==========================================
-# 1. 頁面基本設定
+# 1. Page Configuration & Styling
 # ==========================================
-st.set_page_config(page_title="HK Salaries Tax Calculator", layout="centered")
+st.set_page_config(
+    page_title="香港薪俸稅及暫繳稅計算器 2026",
+    layout="centered",
+    page_icon="🇭🇰"
+)
+
+# Custom CSS to mimic Tkinter/LabelFrame styling
+st.markdown("""
+    <style>
+    .main-header {
+        text-align: center;
+        font-weight: bold;
+        padding-bottom: 15px;
+    }
+    .result-box {
+        background-color: #f8f9fa;
+        border: 1px solid #ced4da;
+        border-radius: 8px;
+        padding: 15px;
+        font-family: monospace;
+        white-space: pre-wrap;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # ==========================================
-# 2. 稅款計算引擎
+# 2. PDF Report Generator Engine
 # ==========================================
-def calculate_tax(net_chargeable_income, net_income):
-    progressive_tax = 0.0
-    temp_prog = net_chargeable_income
-    
-    # 累進稅率階梯保持不變
-    tax_brackets = [
-        {"limit": 50000, "rate": 0.02},
-        {"limit": 50000, "rate": 0.06},
-        {"limit": 50000, "rate": 0.10},
-        {"limit": 50000, "rate": 0.14},
-        {"limit": float('inf'), "rate": 0.17}
-    ]
-    
-    for bracket in tax_brackets:
-        if temp_prog > 0:
-            step = min(temp_prog, bracket["limit"])
-            progressive_tax += step * bracket["rate"]
-            temp_prog -= step
-        else:
-            break
-
-    # 標準稅率 (首 $5,000,000 @ 15%，餘額 @ 16%) 適用於 25/26 及 26/27
-    standard_tax = 0.0
-    if net_income <= 5000000:
-        standard_tax = net_income * 0.15
-    else:
-        standard_tax = (5000000 * 0.15) + ((net_income - 5000000) * 0.16)
-
-    payable_tax = min(progressive_tax, standard_tax)
-    return payable_tax, progressive_tax, standard_tax
-
-# ==========================================
-# 3. 中英雙語 PDF 生成引擎 
-# ==========================================
-def generate_pdf(selected_year, user_name, marital_status, income, total_deductions, total_allowance, current_year_tax, provisional_tax, total_tax_assessed, provisional_tax_paid, balance_payable):
+def generate_pdf(res):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     
+    # Register Traditional Chinese Font Support
     pdfmetrics.registerFont(UnicodeCIDFont('MSung-Light'))
     font_name = 'MSung-Light'
     
-    c.setFont(font_name, 18)
-    c.drawString(50, 750, f"Hong Kong Salaries & Provisional Tax Summary ({selected_year})")
-    c.drawString(50, 725, f"(香港薪俸稅及暫繳稅計算摘要 - {selected_year})")
-    
-    c.setFont(font_name, 14)
-    c.drawString(50, 680, "1. Personal Information (個人資料)")
-    c.setFont(font_name, 12)
-    name_str = user_name if user_name else "Taxpayer (納稅人)"
-    c.drawString(50, 660, f"Name (姓名): {name_str}")
-    c.drawString(50, 640, f"Marital Status (婚姻狀況): {marital_status}")
-    
-    c.setFont(font_name, 14)
-    c.drawString(50, 600, "2. Income & Deductions (入息及扣除額)")
-    c.setFont(font_name, 12)
-    c.drawString(50, 580, f"Total Income (總入息): HKD {income:,.2f}")
-    c.drawString(50, 560, f"Total Deductions Claimed (總申索扣除額): HKD {total_deductions:,.2f}")
-    
-    c.setFont(font_name, 14)
-    c.drawString(50, 520, "3. Allowances (免稅額)")
-    c.setFont(font_name, 12)
-    c.drawString(50, 500, f"Total Allowances Claimed (總申索免稅額): HKD {total_allowance:,.2f}")
-    
     c.setFont(font_name, 16)
-    c.drawString(50, 450, "--- Final Tax Calculation (最終稅款計算) ---")
-    c.setFont(font_name, 12)
-    c.drawString(50, 420, f"Current Year Tax (本年度稅款): HKD {current_year_tax:,.2f}")
-    c.drawString(50, 400, f"Next Year Provisional Tax (下年度暫繳稅): HKD {provisional_tax:,.2f}")
-    c.drawString(50, 380, f"Total Tax Assessed (評定總稅款): HKD {total_tax_assessed:,.2f}")
+    c.drawString(50, 750, f"香港薪俸稅計算摘要報告 ({res['year']})")
+    c.drawString(50, 730, f"HK Salaries Tax Summary Report ({res['year']})")
     
-    c.drawString(50, 360, f"Less: Provisional Tax Paid (扣減已繳交之暫繳稅): - HKD {provisional_tax_paid:,.2f}")
+    c.setFont(font_name, 11)
+    c.drawString(50, 690, f"納稅人姓名 (Taxpayer Name): {res['taxpayer_name']}")
+    c.drawString(50, 670, f"課稅年度 (Tax Year): {res['year']}")
+    c.drawString(50, 650, f"婚姻狀況 (Marital Status): {res['marital_status']}")
     
-    c.setFont(font_name, 16)
-    if balance_payable >= 0:
-        c.drawString(50, 310, f"BALANCE PAYABLE (應繳總結欠): HKD {balance_payable:,.2f}")
-    else:
-        c.drawString(50, 310, f"TAX REFUND (退還稅款): HKD {abs(balance_payable):,.2f}")
+    c.setFont(font_name, 13)
+    c.drawString(50, 610, "計算結果明細 (Calculation Breakdown)")
+    c.setFont(font_name, 11)
     
-    c.setFont(font_name, 10)
-    c.drawString(50, 60, "* This is an estimated calculation based on the provided inputs.")
-    c.drawString(50, 45, "  (此乃基於您提供的資料作出的初步估算。)")
-    c.drawString(50, 30, "* Please refer to the official Inland Revenue Department (IRD) assessment for actual tax bills.")
-    c.drawString(50, 15, "  (實際稅款請以香港稅務局發出的評稅通知書為準。)")
+    items = [
+        ("總收入 (Gross Income)", f"HKD ${res['gross_income']:,.2f}"),
+        ("扣除額總額 (Total Deductions)", f"HKD ${res['total_deductions']:,.2f}"),
+        ("入息淨額 (Net Income)", f"HKD ${res['net_income']:,.2f}"),
+        ("免稅額總額 (Total Allowances)", f"HKD ${res['total_allowances']:,.2f}"),
+        ("應課稅入息實額 (Net Chargeable Income)", f"HKD ${res['net_chargeable_income']:,.2f}"),
+        ("計稅方法 (Calculation Method)", f"{res['tax_method']}"),
+        ("本年度應繳薪俸稅 (Salaries Tax)", f"HKD ${res['final_tax']:,.2f}"),
+        ("下一年度暫繳稅 (Provisional Tax)", f"HKD ${res['provisional_tax']:,.2f}"),
+        ("預計總應繳稅款 (Total Estimated Tax)", f"HKD ${res['total_tax']:,.2f}"),
+    ]
+    
+    y = 580
+    for label, val in items:
+        c.drawString(50, y, f"{label}: {val}")
+        y -= 22
+        
+    c.setFont(font_name, 9)
+    c.drawString(50, 50, "* 此乃基於您輸入資料作出的估算，實際稅款請以香港稅務局發出的評稅通知書為準。")
+    c.drawString(50, 38, "  (This is an estimated calculation based on user input. Please refer to official IRD assessments.)")
     
     c.save()
     buffer.seek(0)
     return buffer
 
 # ==========================================
-# 4. 主程式 (Streamlit 網頁介面)
+# 3. Tax Engine Logic
+# ==========================================
+def calculate_tax(taxpayer_name, year, marital_status, gross_income, children_count, newborn_count,
+                  parents_60, parents_60_live, parents_55, parents_55_live,
+                  mpf, self_edu, home_loan, vhis, tvc, elderly_care, donations):
+    
+    cfg = config.TAX_CONFIG.get(year, config.TAX_CONFIG['2026/27'])
+    
+    # 1. Deductions Calculation
+    mpf_d = min(mpf, cfg['DEDUCTIONS_CAP']['MPF'])
+    edu_d = min(self_edu, cfg['DEDUCTIONS_CAP']['SELF_EDU'])
+    loan_d = min(home_loan, cfg['DEDUCTIONS_CAP']['HOME_LOAN_INTEREST'])
+    vhis_d = min(vhis, cfg['DEDUCTIONS_CAP']['VHIS'])
+    tvc_d = min(tvc, cfg['DEDUCTIONS_CAP']['TVC'])
+    care_d = min(elderly_care, cfg['DEDUCTIONS_CAP']['ELDERLY_CARE'])
+    
+    inc_after_ded = max(0.0, gross_income - mpf_d - edu_d - loan_d - vhis_d - tvc_d - care_d)
+    max_don = inc_after_ded * cfg['DEDUCTIONS_CAP']['CHARITABLE_DONATIONS_RATIO']
+    don_d = min(donations, max_don)
+    
+    total_deductions = mpf_d + edu_d + loan_d + vhis_d + tvc_d + care_d + don_d
+    net_income = max(0.0, gross_income - total_deductions)
+    
+    # 2. Allowances Calculation
+    allow_cfg = cfg['ALLOWANCES']
+    pers_allow = allow_cfg['MARRIED'] if "已婚" in marital_status or "Married" in marital_status else allow_cfg['BASIC']
+    child_allow = (children_count * allow_cfg['CHILD_BASIC']) + (newborn_count * allow_cfg['CHILD_NEWBORN_ADDITIONAL'])
+    parent_allow = (
+        (parents_60 * allow_cfg['PARENT_60_ABOVE_BASIC']) +
+        (parents_60_live * allow_cfg['PARENT_60_ABOVE_RESIDING']) +
+        (parents_55 * allow_cfg['PARENT_55_59_BASIC']) +
+        (parents_55_live * allow_cfg['PARENT_55_59_RESIDING'])
+    )
+    
+    total_allowances = pers_allow + child_allow + parent_allow
+    net_chargeable_income = max(0.0, net_income - total_allowances)
+    
+    # 3. Progressive Tax Calculation
+    prog_tax = 0.0
+    rem = net_chargeable_income
+    for band_amount, rate in cfg['PROGRESSIVE_BANDS'][:-1]:
+        if rem > band_amount:
+            prog_tax += band_amount * rate
+            rem -= band_amount
+        else:
+            prog_tax += rem * rate
+            rem = 0.0
+            break
+    if rem > 0:
+        prog_tax += rem * cfg['PROGRESSIVE_BANDS'][-1][1]
+        
+    # 4. Standard Rate Calculation
+    std_tiers = cfg['STANDARD_RATE_TIERS']
+    if net_income <= std_tiers[0][0]:
+        std_tax = net_income * std_tiers[0][1]
+    else:
+        std_tax = (std_tiers[0][0] * std_tiers[0][1]) + ((net_income - std_tiers[0][0]) * std_tiers[1][1])
+        
+    final_tax = min(prog_tax, std_tax)
+    tax_method = "累進稅率 (Progressive Rate)" if prog_tax <= std_tax else "標準稅率 (Standard Rate)"
+    
+    return {
+        'taxpayer_name': taxpayer_name,
+        'year': year,
+        'marital_status': marital_status,
+        'gross_income': gross_income,
+        'total_deductions': total_deductions,
+        'net_income': net_income,
+        'total_allowances': total_allowances,
+        'net_chargeable_income': net_chargeable_income,
+        'final_tax': final_tax,
+        'provisional_tax': final_tax,
+        'total_tax': final_tax * 2,
+        'tax_method': tax_method
+    }
+
+# ==========================================
+# 4. Main Web App Layout
 # ==========================================
 def main():
-    st.title("🇭🇰 HK Salaries & Provisional Tax Calculator") 
-    st.markdown("---")
+    st.markdown("<h2 class='main-header'>香港薪俸稅及暫繳稅計算器</h2>", unsafe_allow_html=True)
     
-    # --- 新增：選擇課稅年度 ---
-    st.header("📅 Year of Assessment (課稅年度)")
-    selected_year = st.radio("Select Year of Assessment (請選擇):", ["2025/26", "2026/27"], horizontal=True)
-    
-    # 根據年份動態設定免稅額及扣除額上限
-    if selected_year == "2025/26":
-        basic_allowance_rate = 132000.0
-        married_allowance_rate = 264000.0
-        child_allowance_rate = 130000.0
-        parent_allowance_rate = 50000.0
-        elderly_care_max = 100000.0
-    else: # 2026/27 增強版
-        basic_allowance_rate = 145000.0
-        married_allowance_rate = 290000.0
-        child_allowance_rate = 140000.0
-        parent_allowance_rate = 55000.0
-        elderly_care_max = 110000.0
-    
-    st.markdown("---")
-    st.header("👤 1. Personal Information (個人資料)")
-    user_name = st.text_input("User Name (用戶名稱):")
-    marital_status = st.radio(f"Marital Status (婚姻狀況) [單身: ${basic_allowance_rate:,.0f} / 已婚: ${married_allowance_rate:,.0f}]:", ["Single (單身)", "Married (已婚)"])
-    
-    col_dep1, col_dep2 = st.columns(2)
-    with col_dep1:
-        num_children = st.number_input(f"Number of Dependent Children (供養子女) [每名 ${child_allowance_rate:,.0f}]:", min_value=0, value=0, step=1)
-    with col_dep2:
-        num_parents = st.number_input(f"Number of Dependent Parents 60+ (供養父母) [每名 ${parent_allowance_rate:,.0f}]:", min_value=0, value=0, step=1)
+    with st.form("hktax_form"):
+        # Section 1: LabelFrame Group
+        with st.container(border=True):
+            st.markdown("#### 1. 基本資料與總收入")
+            col1, col2 = st.columns(2)
+            with col1:
+                taxpayer_name = st.text_input("納稅人姓名:", value="Chan Tai Man")
+                marital_status = st.selectbox("婚姻狀況:", ["單身/分居/離婚/喪偶", "已婚 (Married)"])
+            with col2:
+                year = st.selectbox("課稅年度:", ["2026/27", "2025/26"])
+                gross_income = st.number_input("全年總收入 (HKD):", min_value=0.0, value=600000.0, step=10000.0)
 
-    st.header("💰 2. Income & Deductions (入息及扣除額)")
-    income = st.number_input("Total Income (總入息) [HKD]:", min_value=0.0, value=300000.0, step=1000.0)
-    
-    st.subheader("Detailed Deductions (詳細扣除額)")
-    mpf = st.number_input("1. MPF Contributions (強積金供款) [Max $18,000]:", min_value=0.0, max_value=18000.0, value=15000.0, step=100.0)
-    self_education = st.number_input("2. Self-Education Expenses (個人進修開支) [Max $100,000]:", min_value=0.0, max_value=100000.0, value=0.0, step=1000.0)
-    
-    donation_input = st.number_input("3. Approved Charitable Donations (認可慈善捐款):", min_value=0.0, value=0.0, step=1000.0)
-    donation_cap = income * 0.35 
-    actual_donation = min(donation_input, donation_cap)
-    
-    home_housing = st.number_input("4. Home Loan Interest / Domestic Rents (居所貸款利息 / 租金) [Max $120,000]:", min_value=0.0, max_value=120000.0, value=0.0, step=1000.0)
-    # 長者照顧開支上限會根據年份自動調整
-    elderly_care = st.number_input(f"5. Elderly Residential Care Expenses (長者住宿照顧) [Max ${elderly_care_max:,.0f}]:", min_value=0.0, max_value=elderly_care_max, value=0.0, step=1000.0)
-    vhis = st.number_input("6. VHIS Policy Premiums (自願醫保計劃保費) [Max $8,000 per insured]:", min_value=0.0, value=0.0, step=1000.0)
-    annuity_tvc = st.number_input("7. Annuity Premiums & TVC (合資格延期年金 / TVC) [Max $60,000]:", min_value=0.0, max_value=60000.0, value=0.0, step=1000.0)
-    
-    total_deductions = mpf + actual_donation + self_education + home_housing + elderly_care + vhis + annuity_tvc
+        # Section 2: LabelFrame Group
+        with st.container(border=True):
+            st.markdown("#### 2. 免稅額資料 (數量/人數)")
+            c1, c2 = st.columns(2)
+            with c1:
+                children_count = st.number_input("一般子女數量:", min_value=0, value=0)
+                parents_60 = st.number_input("供養 60歲或以上 父母/祖父母人數:", min_value=0, value=0)
+                parents_55 = st.number_input("供養 55-59歲 父母/祖父母人數:", min_value=0, value=0)
+            with c2:
+                newborn_count = st.number_input("本年度出生子女數量:", min_value=0, value=0)
+                parents_60_live = st.number_input("其中同住人數 (60歲或以上):", min_value=0, value=0)
+                parents_55_live = st.number_input("其中同住人數 (55-59歲):", min_value=0, value=0)
 
-    st.header("✂️ 3. One-off Tax Reduction (稅款寬減)")
-    tax_reduction_limit = st.number_input("Tax Reduction Rebate [HKD] (預設為 $0):", min_value=0.0, value=0.0, step=1000.0)
+        # Section 3: LabelFrame Group
+        with st.container(border=True):
+            st.markdown("#### 3. 扣除額項目 (HKD)")
+            d1, d2 = st.columns(2)
+            with d1:
+                mpf = st.number_input("MPF 強制性供款:", min_value=0.0, value=18000.0)
+                self_edu = st.number_input("個人進修開支:", min_value=0.0, value=0.0)
+                home_loan = st.number_input("居所貸款利息 / 租金:", min_value=0.0, value=0.0)
+                vhis = st.number_input("自願醫保 (VHIS):", min_value=0.0, value=0.0)
+            with d2:
+                tvc = st.number_input("合資格延期年金 (TVC):", min_value=0.0, value=0.0)
+                elderly_care = st.number_input("長者住宿照顧開支:", min_value=0.0, value=0.0)
+                donations = st.number_input("認可慈善捐款:", min_value=0.0, value=0.0)
 
-    st.header("⏳ 4. Provisional Tax Paid (已繳交之暫繳稅)")
-    provisional_tax_paid = st.number_input("Provisional Tax Paid for the Year (本年度已繳交) [HKD]:", min_value=0.0, value=0.0, step=1000.0)
+        # Action Buttons
+        btn_calc = st.form_submit_button("開始計算稅款", type="primary")
 
-    # --- 核心運算 ---
-    # 根據已選年份動態計算免稅額
-    base_allowance = married_allowance_rate if marital_status == "Married (已婚)" else basic_allowance_rate
-    child_allowance = num_children * child_allowance_rate
-    parent_allowance = num_parents * parent_allowance_rate
-    total_allowance = base_allowance + child_allowance + parent_allowance
+    # Section 4: Result Container
+    if btn_calc or 'calc_res' in st.session_state:
+        if btn_calc:
+            st.session_state.calc_res = calculate_tax(
+                taxpayer_name, year, marital_status, gross_income, children_count, newborn_count,
+                parents_60, parents_60_live, parents_55, parents_55_live,
+                mpf, self_edu, home_loan, vhis, tvc, elderly_care, donations
+            )
 
-    net_income = max(0.0, income - total_deductions)
-    net_chargeable_income = max(0.0, net_income - total_allowance)
-        
-    payable_tax_before_reduction, prog_tax, std_tax = calculate_tax(net_chargeable_income, net_income)
-    
-    current_year_tax = max(0.0, payable_tax_before_reduction - tax_reduction_limit)
-    provisional_tax = payable_tax_before_reduction
-    total_tax_assessed = current_year_tax + provisional_tax
+        res = st.session_state.calc_res
 
-    balance_payable = total_tax_assessed - provisional_tax_paid
-
-    # --- 顯示結果 ---
-    st.markdown("---")
-    if user_name:
-        st.header(f"📊 Tax Summary for {user_name} ({selected_year})")
-    else:
-        st.header(f"📊 Tax Summary ({selected_year})")
-        
-    st.write(f"**Total Deductions (總扣除額):** ${total_deductions:,.2f}")
-    st.write(f"**Total Allowances (總免稅額):** ${total_allowance:,.2f}")
-
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Current Year Tax (本年度)", f"${current_year_tax:,.2f}")
-    with col2:
-        st.metric("Next Year Prov. (下年度)", f"${provisional_tax:,.2f}")
-    with col3:
-        st.metric("Less: Tax Paid (扣減已繳稅)", f"-${provisional_tax_paid:,.2f}")
-    with col4:
-        if balance_payable >= 0:
-            st.metric("💰 Balance Payable (應繳結欠)", f"${balance_payable:,.2f}")
-        else:
-            st.metric("💰 Tax Refund (退款)", f"${abs(balance_payable):,.2f}")
+        with st.container(border=True):
+            st.markdown("#### 計算結果摘要")
             
-    # --- 匯出 PDF 按鈕 ---
-    st.markdown("---")
-    st.header("🖨️ Export to PDF (匯出報告)")
-    
-    pdf_buffer = generate_pdf(selected_year, user_name, marital_status, income, total_deductions, total_allowance, current_year_tax, provisional_tax, total_tax_assessed, provisional_tax_paid, balance_payable)
-    file_name_str = f"Tax_Summary_{selected_year.replace('/','-')}_{user_name.replace(' ', '_')}.pdf" if user_name else f"HK_Tax_Summary_{selected_year.replace('/','-')}.pdf"
-    
-    st.download_button(
-        label=f"📄 Download Tax Summary (下載 {selected_year} PDF 報表)",
-        data=pdf_buffer,
-        file_name=file_name_str,
-        mime="application/pdf"
-    )
+            output_text = (
+                f"納稅人姓名 (Taxpayer Name): {res['taxpayer_name']}\n"
+                f"課稅年度 (Tax Year): {res['year']}\n"
+                f"--------------------------------------------------\n"
+                f"總收入 (Gross Income): HKD ${res['gross_income']:,.2f}\n"
+                f"扣除額總額 (Total Deductions): HKD ${res['total_deductions']:,.2f}\n"
+                f"入息淨額 (Net Income): HKD ${res['net_income']:,.2f}\n"
+                f"免稅額總額 (Total Allowances): HKD ${res['total_allowances']:,.2f}\n"
+                f"應課稅入息實額 (Net Chargeable Income): HKD ${res['net_chargeable_income']:,.2f}\n"
+                f"--------------------------------------------------\n"
+                f"計稅方法: {res['tax_method']}\n"
+                f"本年度應繳薪俸稅 (Salaries Tax Payable): HKD ${res['final_tax']:,.2f}\n"
+                f"估計下一年度暫繳稅 (Provisional Tax): HKD ${res['provisional_tax']:,.2f}\n"
+                f"預計總應繳稅款總額 (Total Estimated Tax): HKD ${res['total_tax']:,.2f}"
+            )
+            
+            st.code(output_text, language="text")
 
-if __name__ == "__main__": 
-    main() 
+            # Generate default filename (Name + Date)
+            safe_name = re.sub(r'[\\/*?:"<>|]', '_', res['taxpayer_name']).replace(' ', '_')
+            curr_date = datetime.now().strftime("%Y%m%d")
+            pdf_filename = f"{safe_name}_{curr_date}.pdf"
+            
+            pdf_data = generate_pdf(res)
+
+            st.download_button(
+                label="匯出 PDF 報告",
+                data=pdf_data,
+                file_name=pdf_filename,
+                mime="application/pdf"
+            )
+
+if __name__ == "__main__":
+    main()
