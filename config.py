@@ -1,41 +1,50 @@
+# Hong Kong Salaries Tax Configuration
 
-# Hong Kong Salaries Tax Configuration (2026/27)
-
-# --- General ---
-TAX_YEAR = "2026/27"
-
-# --- Personal Allowances ---
-BASIC_ALLOWANCE = 145000
-MARRIED_PERSON_ALLOWANCE = 290000
-CHILD_ALLOWANCE_PER_CHILD = 140000
-NEWBORN_ADDITIONAL_ALLOWANCE = 140000
-
-# --- Dependent Parent/Grandparent Allowances ---
-PARENT_AGE_60_PLUS_BASE = 55000
-PARENT_AGE_60_PLUS_ADDITIONAL = 55000
-PARENT_AGE_55_TO_59_BASE = 27500
-PARENT_AGE_55_TO_59_ADDITIONAL = 27500
-
-# --- Deduction Caps ---
-MPF_MANDATORY_CAP = 18000
-SELF_EDUCATION_EXPENSES_CAP = 100000
-HOME_LOAN_INTEREST_CAP = 100000
-DOMESTIC_RENT_DEDUCTION_CAP = 100000
-VHIS_PREMIUM_CAP_PER_PERSON = 8000
-ANNUITY_TVC_COMBINED_CAP = 60000
-ELDERLY_RESIDENTIAL_CARE_CAP = 110000
-CHARITY_DEDUCTION_PERCENTAGE = 0.35
-
-# --- Progressive Tax Bands ---
-PROGRESSIVE_BANDS = [
-    (50000, 0.02),
-    (50000, 0.06),
-    (50000, 0.10),
-    (50000, 0.14)
-]
-REMAINDER_RATE = 0.17
-
-# --- Standard Rate Tiers ---
-STANDARD_RATE_TIER_1_LIMIT = 5000000
-STANDARD_RATE_TIER_1 = 0.15
-STANDARD_RATE_TIER_2 = 0.16
+TAX_CONFIG = {
+    "2025/26": {
+        "ALLOWANCES": {
+            "BASIC": 132000,
+            "MARRIED": 264000,
+            "CHILD_BASIC": 130000,
+            "CHILD_NEWBORN_ADDITIONAL": 130000,
+            "PARENT_60_ABOVE_BASIC": 50000,
+            "PARENT_60_ABOVE_RESIDING": 50000,
+            "PARENT_55_59_BASIC": 25000,
+            "PARENT_55_59_RESIDING": 25000,
+        },
+        "DEDUCTIONS_CAP": {
+            "MPF": 18000,
+            "SELF_EDU": 100000,
+            "HOME_LOAN_INTEREST": 100000,
+            "VHIS": 8000,
+            "TVC": 60000,
+            "ELDERLY_CARE": 100000,
+            "CHARITABLE_DONATIONS_RATIO": 0.35,
+        },
+        "PROGRESSIVE_BANDS": [(50000, 0.02), (50000, 0.06), (50000, 0.10), (50000, 0.14), (float('inf'), 0.17)],
+        "STANDARD_RATE_TIERS": [(5000000, 0.15), (float('inf'), 0.16)]
+    },
+    "2026/27": {
+        "ALLOWANCES": {
+            "BASIC": 145000,
+            "MARRIED": 290000,
+            "CHILD_BASIC": 140000,
+            "CHILD_NEWBORN_ADDITIONAL": 140000,
+            "PARENT_60_ABOVE_BASIC": 55000,
+            "PARENT_60_ABOVE_RESIDING": 55000,
+            "PARENT_55_59_BASIC": 27500,
+            "PARENT_55_59_RESIDING": 27500,
+        },
+        "DEDUCTIONS_CAP": {
+            "MPF": 18000,
+            "SELF_EDU": 100000,
+            "HOME_LOAN_INTEREST": 100000,
+            "VHIS": 8000,
+            "TVC": 60000,
+            "ELDERLY_CARE": 110000,
+            "CHARITABLE_DONATIONS_RATIO": 0.35,
+        },
+        "PROGRESSIVE_BANDS": [(50000, 0.02), (50000, 0.06), (50000, 0.10), (50000, 0.14), (float('inf'), 0.17)],
+        "STANDARD_RATE_TIERS": [(5000000, 0.15), (float('inf'), 0.16)]
+    }
+}
