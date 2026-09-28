@@ -59,15 +59,17 @@ def generate_pdf(res):
         ("免稅額總額 (Total Allowances)", f"HKD ${res['total_allowances']:,.2f}"),
         ("應課稅入息實額 (Net Chargeable Income)", f"HKD ${res['net_chargeable_income']:,.2f}"),
         ("計稅方法 (Calculation Method)", f"{res['tax_method']}"),
-        ("本年度應繳薪俸稅 (Salaries Tax)", f"HKD ${res['final_tax']:,.2f}"),
-        ("下一年度暫繳稅 (Provisional Tax)", f"HKD ${res['provisional_tax']:,.2f}"),
-        ("預計總應繳稅款 (Total Estimated Tax)", f"HKD ${res['total_tax']:,.2f}")
+        ("本年度應繳薪俸稅 (Current Year Tax)", f"HKD ${res['final_tax']:,.2f}"),
+        ("下一年度暫繳稅 (Next Year Provisional Tax)", f"HKD ${res['provisional_tax']:,.2f}"),
+        ("預計總稅款負擔 (Total Tax Liability)", f"HKD ${res['total_tax']:,.2f}"),
+        ("上年度已繳暫繳稅 (Previously Paid Provisional Tax)", f"HKD ${res['paid_provisional_tax']:,.2f}"),
+        ("淨應繳稅款 / (退稅) (Net Tax Payable / Refund)", f"HKD ${res['net_payable']:,.2f}"),
     ]
     
     y = 580
     for label, val in items:
         c.drawString(50, y, f"{label}: {val}")
-        y -= 22
+        y -= 20
         
     c.setFont(font_name, 9)
     c.drawString(50, 50, "* 此乃基於您輸入資料作出的估算，實際稅款請以香港稅務局發出的評稅通知書為準。")
@@ -82,9 +84,9 @@ def generate_pdf(res):
 # ==========================================
 def calculate_tax(taxpayer_name, year, marital_status, gross_income, children_count, newborn_count,
                   parents_60, parents_60_live, parents_55, parents_55_live,
-                  mpf, self_edu, home_loan, vhis, tvc, elderly_care, donations):
+                  mpf, self_edu, home_loan, vhis, tvc, elderly_care, donations,
+                  paid_provisional_tax):
     
-    # Safe retrieval from config
     tax_cfg = getattr(config, 'TAX_CONFIG', {})
     cfg = tax_cfg.get(year, tax_cfg.get('2026/27', {}))
     
@@ -143,6 +145,12 @@ def calculate_tax(taxpayer_name, year, marital_status, gross_income, children_co
         std_tax = (std_tiers[0][0] * std_tiers[0][1]) + ((net_income - std_tiers[0][0]) * std_tiers[1][1])
         
     final_tax = min(prog_tax, std_tax)
+    provisional_tax = final_tax
+    total_tax_liability = final_tax + provisional_tax
+    
+    # Net Payable after deducting previously paid provisional tax
+    net_payable = total_tax_liability - paid_provisional_tax
+    
     tax_method = "累進稅率 (Progressive Rate)" if prog_tax <= std_tax else "標準稅率 (Standard Rate)"
     
     return {
@@ -155,8 +163,10 @@ def calculate_tax(taxpayer_name, year, marital_status, gross_income, children_co
         'total_allowances': total_allowances,
         'net_chargeable_income': net_chargeable_income,
         'final_tax': final_tax,
-        'provisional_tax': final_tax,
-        'total_tax': final_tax * 2,
+        'provisional_tax': provisional_tax,
+        'total_tax': total_tax_liability,
+        'paid_provisional_tax': paid_provisional_tax,
+        'net_payable': net_payable,
         'tax_method': tax_method
     }
 
@@ -166,7 +176,6 @@ def calculate_tax(taxpayer_name, year, marital_status, gross_income, children_co
 def main():
     st.markdown("<h2 class='main-header'>香港薪俸稅及暫繳稅計算器</h2>", unsafe_allow_html=True)
     
-    # 取得 config 設定
     tax_cfg = getattr(config, 'TAX_CONFIG', {})
     
     with st.form("hktax_form"):
@@ -220,16 +229,28 @@ def main():
                 elderly_care = st.number_input("長者住宿照顧開支:", min_value=0.0, value=0.0)
                 donations = st.number_input("認可慈善捐款:", min_value=0.0, value=0.0)
 
-        # 表單提交按鈕 (明確放在 st.form 區塊內部的最末端)
+        # 4. 已繳付的暫繳稅扣除
+        with st.container(border=True):
+            st.markdown("#### 4. 已繳付的暫繳稅 (Previously Paid Provisional Tax)")
+            paid_provisional_tax = st.number_input(
+                "上年度已預繳的暫繳稅金額 (HKD):",
+                min_value=0.0,
+                value=0.0,
+                step=1000.0,
+                help="請輸入您在上一個課稅年度通知書中所繳付的本年度暫繳稅金額。"
+            )
+
+        # 表單提交按鈕
         btn_calc = st.form_submit_button("開始計算稅款", type="primary")
 
-    # 4. 結果顯示區塊 (表單外部)
+    # 5. 結果顯示區塊
     if btn_calc or 'calc_res' in st.session_state:
         if btn_calc:
             st.session_state.calc_res = calculate_tax(
                 taxpayer_name, year, marital_status, gross_income, children_count, newborn_count,
                 parents_60, parents_60_live, parents_55, parents_55_live,
-                mpf, self_edu, home_loan, vhis, tvc, elderly_care, donations
+                mpf, self_edu, home_loan, vhis, tvc, elderly_care, donations,
+                paid_provisional_tax
             )
 
         res = st.session_state.get('calc_res')
@@ -237,6 +258,8 @@ def main():
         if res:
             with st.container(border=True):
                 st.markdown("#### 計算結果摘要")
+                
+                status_label = "應繳總稅款 (Net Tax Payable)" if res['net_payable'] >= 0 else "預計可獲退稅 (Estimated Refund)"
                 
                 output_text = (
                     f"納稅人姓名 (Taxpayer Name): {res['taxpayer_name']}\n"
@@ -249,9 +272,12 @@ def main():
                     f"應課稅入息實額 (Net Chargeable Income): HKD ${res['net_chargeable_income']:,.2f}\n"
                     f"--------------------------------------------------\n"
                     f"計稅方法: {res['tax_method']}\n"
-                    f"本年度應繳薪俸稅 (Salaries Tax Payable): HKD ${res['final_tax']:,.2f}\n"
-                    f"估計下一年度暫繳稅 (Provisional Tax): HKD ${res['provisional_tax']:,.2f}\n"
-                    f"預計總應繳稅款總額 (Total Estimated Tax): HKD ${res['total_tax']:,.2f}"
+                    f"本年度應繳薪俸稅 (Current Year Tax): HKD ${res['final_tax']:,.2f}\n"
+                    f"估計下一年度暫繳稅 (Next Year Provisional Tax): HKD ${res['provisional_tax']:,.2f}\n"
+                    f"預計總稅款負擔 (Total Tax Liability): HKD ${res['total_tax']:,.2f}\n"
+                    f"減：上年度已繳暫繳稅 (Less: Paid Provisional Tax): HKD ${res['paid_provisional_tax']:,.2f}\n"
+                    f"--------------------------------------------------\n"
+                    f"實質{status_label}: HKD ${abs(res['net_payable']):,.2f}"
                 )
                 
                 st.code(output_text, language="text")
