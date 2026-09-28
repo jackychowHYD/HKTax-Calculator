@@ -26,6 +26,13 @@ st.markdown("""
         font-weight: bold;
         padding-bottom: 15px;
     }
+    .amount-hint {
+        color: #0066cc;
+        font-weight: bold;
+        font-size: 0.85em;
+        margin-top: -12px;
+        margin-bottom: 10px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -83,7 +90,7 @@ def generate_pdf(res):
 # 3. Tax Engine Logic
 # ==========================================
 def calculate_tax(taxpayer_name, year, marital_status, gross_income, children_count, newborn_count,
-                  parents_60, parents_60_live, parents_55, parents_55_live,
+                  parents_60, parents_60_live, parents_55, parents_55_live, disabled_parents_count,
                   mpf, self_edu, home_loan, vhis, tvc, elderly_care, donations,
                   paid_provisional_tax):
     
@@ -119,8 +126,10 @@ def calculate_tax(taxpayer_name, year, marital_status, gross_income, children_co
         (parents_55 * allow_cfg['PARENT_55_59_BASIC']) +
         (parents_55_live * allow_cfg['PARENT_55_59_RESIDING'])
     )
+    # 傷殘受養人免稅額
+    disabled_allow = disabled_parents_count * allow_cfg.get('DISABLED_DEPENDANT', 75000)
     
-    total_allowances = pers_allow + child_allow + parent_allow
+    total_allowances = pers_allow + child_allow + parent_allow + disabled_allow
     net_chargeable_income = max(0.0, net_income - total_allowances)
     
     # 3. Progressive Tax
@@ -191,6 +200,7 @@ def main():
             cfg_year = tax_cfg.get(year, tax_cfg.get('2026/27', {}))
             basic_amt = cfg_year.get('ALLOWANCES', {}).get('BASIC', 145000)
             married_amt = cfg_year.get('ALLOWANCES', {}).get('MARRIED', 290000)
+            disabled_amt = cfg_year.get('ALLOWANCES', {}).get('DISABLED_DEPENDANT', 75000)
             
             with col2:
                 marital_status = st.selectbox(
@@ -200,34 +210,63 @@ def main():
                         f"已婚 (Married) (已婚人士免稅額: ${married_amt:,.0f})"
                     ]
                 )
-                gross_income = st.number_input("全年總收入 (HKD):", min_value=0.0, value=600000.0, step=10000.0)
+                gross_income = st.number_input(
+                    "全年總收入 (HKD):",
+                    min_value=0.0,
+                    value=600000.0,
+                    step=1000.0,
+                    format="%.2f"
+                )
+                st.markdown(f"<div class='amount-hint'>即: HKD ${gross_income:,.2f}</div>", unsafe_allow_html=True)
 
         # 2. 免稅額
         with st.container(border=True):
             st.markdown("#### 2. 免稅額資料 (數量/人數)")
             c1, c2 = st.columns(2)
             with c1:
-                children_count = st.number_input("一般子女數量:", min_value=0, value=0)
-                parents_60 = st.number_input("供養 60歲或以上 父母/祖父母人數:", min_value=0, value=0)
-                parents_55 = st.number_input("供養 55-59歲 父母/祖父母人數:", min_value=0, value=0)
+                children_count = st.number_input("一般子女數量:", min_value=0, value=0, step=1)
+                parents_60 = st.number_input("供養 60歲或以上 父母/祖父母人數:", min_value=0, value=0, step=1)
+                parents_55 = st.number_input("供養 55-59歲 父母/祖父母人數:", min_value=0, value=0, step=1)
             with c2:
-                newborn_count = st.number_input("本年度出生子女數量:", min_value=0, value=0)
-                parents_60_live = st.number_input("其中同住人數 (60歲或以上):", min_value=0, value=0)
-                parents_55_live = st.number_input("其中同住人數 (55-59歲):", min_value=0, value=0)
+                newborn_count = st.number_input("本年度出生子女數量:", min_value=0, value=0, step=1)
+                parents_60_live = st.number_input("其中同住人數 (60歲或以上):", min_value=0, value=0, step=1)
+                parents_55_live = st.number_input("其中同住人數 (55-59歲):", min_value=0, value=0, step=1)
+            
+            st.divider()
+            disabled_parents_count = st.number_input(
+                f"符合社會福利署傷殘津貼資格的受養父母/祖父母人數 (每人額外免稅額: ${disabled_amt:,.0f}):",
+                min_value=0,
+                value=0,
+                step=1,
+                help="若受養人有資格根據政府傷殘津貼計劃申領津貼，可額外申領此項免稅額。"
+            )
 
         # 3. 扣除額
         with st.container(border=True):
             st.markdown("#### 3. 扣除額項目 (HKD)")
             d1, d2 = st.columns(2)
             with d1:
-                mpf = st.number_input("MPF 強制性供款:", min_value=0.0, value=18000.0)
-                self_edu = st.number_input("個人進修開支:", min_value=0.0, value=0.0)
-                home_loan = st.number_input("居所貸款利息 / 租金:", min_value=0.0, value=0.0)
-                vhis = st.number_input("自願醫保 (VHIS):", min_value=0.0, value=0.0)
+                mpf = st.number_input("MPF 強制性供款 (上限 $18,000):", min_value=0.0, value=18000.0, step=1000.0, format="%.2f")
+                st.markdown(f"<div class='amount-hint'>即: HKD ${mpf:,.2f}</div>", unsafe_allow_html=True)
+                
+                self_edu = st.number_input("個人進修開支 (上限 $100,000):", min_value=0.0, value=0.0, step=1000.0, format="%.2f")
+                st.markdown(f"<div class='amount-hint'>即: HKD ${self_edu:,.2f}</div>", unsafe_allow_html=True)
+                
+                home_loan = st.number_input("居所貸款利息 / 租金 (上限 $100,000):", min_value=0.0, value=0.0, step=1000.0, format="%.2f")
+                st.markdown(f"<div class='amount-hint'>即: HKD ${home_loan:,.2f}</div>", unsafe_allow_html=True)
+                
+                vhis = st.number_input("自願醫保 (VHIS) (每人上限 $8,000):", min_value=0.0, value=0.0, step=1000.0, format="%.2f")
+                st.markdown(f"<div class='amount-hint'>即: HKD ${vhis:,.2f}</div>", unsafe_allow_html=True)
+                
             with d2:
-                tvc = st.number_input("合資格延期年金 (TVC):", min_value=0.0, value=0.0)
-                elderly_care = st.number_input("長者住宿照顧開支:", min_value=0.0, value=0.0)
-                donations = st.number_input("認可慈善捐款:", min_value=0.0, value=0.0)
+                tvc = st.number_input("合資格延期年金 (TVC) (上限 $60,000):", min_value=0.0, value=0.0, step=1000.0, format="%.2f")
+                st.markdown(f"<div class='amount-hint'>即: HKD ${tvc:,.2f}</div>", unsafe_allow_html=True)
+                
+                elderly_care = st.number_input("長者住宿照顧開支 (上限 $110,000):", min_value=0.0, value=0.0, step=1000.0, format="%.2f")
+                st.markdown(f"<div class='amount-hint'>即: HKD ${elderly_care:,.2f}</div>", unsafe_allow_html=True)
+                
+                donations = st.number_input("認可慈善捐款:", min_value=0.0, value=0.0, step=1000.0, format="%.2f")
+                st.markdown(f"<div class='amount-hint'>即: HKD ${donations:,.2f}</div>", unsafe_allow_html=True)
 
         # 4. 已繳付的暫繳稅扣除
         with st.container(border=True):
@@ -237,8 +276,10 @@ def main():
                 min_value=0.0,
                 value=0.0,
                 step=1000.0,
+                format="%.2f",
                 help="請輸入您在上一個課稅年度通知書中所繳付的本年度暫繳稅金額。"
             )
+            st.markdown(f"<div class='amount-hint'>即: HKD ${paid_provisional_tax:,.2f}</div>", unsafe_allow_html=True)
 
         # 表單提交按鈕
         btn_calc = st.form_submit_button("開始計算稅款", type="primary")
@@ -248,7 +289,7 @@ def main():
         if btn_calc:
             st.session_state.calc_res = calculate_tax(
                 taxpayer_name, year, marital_status, gross_income, children_count, newborn_count,
-                parents_60, parents_60_live, parents_55, parents_55_live,
+                parents_60, parents_60_live, parents_55, parents_55_live, disabled_parents_count,
                 mpf, self_edu, home_loan, vhis, tvc, elderly_care, donations,
                 paid_provisional_tax
             )

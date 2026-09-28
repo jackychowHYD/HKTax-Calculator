@@ -11,6 +11,7 @@ TAX_CONFIG = {
             "PARENT_60_ABOVE_RESIDING": 50000,
             "PARENT_55_59_BASIC": 25000,
             "PARENT_55_59_RESIDING": 25000,
+            "DISABLED_DEPENDANT": 75000,  # 傷殘受養人免稅額
         },
         "DEDUCTIONS_CAP": {
             "MPF": 18000,
@@ -34,6 +35,7 @@ TAX_CONFIG = {
             "PARENT_60_ABOVE_RESIDING": 55000,
             "PARENT_55_59_BASIC": 27500,
             "PARENT_55_59_RESIDING": 27500,
+            "DISABLED_DEPENDANT": 75000,  # 傷殘受養人免稅額
         },
         "DEDUCTIONS_CAP": {
             "MPF": 18000,
